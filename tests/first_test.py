@@ -1,69 +1,64 @@
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from playwright.sync_api import Page
 
-def test_card_number_validation(browser, app_url):
-    """Тестирование формы ввода карты на валидацию номера карты"""
-    browser.get(app_url)
-    
-    # Находим поле ввода номера карты
-    card_input = browser.find_element(By.CSS_SELECTOR, "input[placeholder='Номер карты']")
-    
-    # Вводим 17 символов
-    card_input.send_keys("9999 9999 9999 9999 9")
-    
-    # Проверяем, что введено не более 16 символов
-    assert len(card_input.get_attribute("value").replace(" ", "")) <= 16
 
-def test_balance_input_validation(browser, app_url):
-    """Ввод некорректных значений в баланс счета"""
-    browser.get(app_url.replace("balance=30000", "balance=gdd"))
-    
-    # Проверяем отображение NaN
-    balance_element = browser.find_element(By.XPATH, "//div[contains(text(), 'На счету:')]")
-    assert "NaN" not in balance_element.text
+def open_rubles(page: Page, url: str) -> None:
+    page.goto(url)
+    page.get_by_text("Рубли").click()
 
-def test_currency_switch(browser, app_url):
-    """Проверка актуального остатка после переключения на другую валюту"""
-    browser.get(app_url)
-    
-    # Находим элементы для перевода
-    amount_input = browser.find_element(By.CSS_SELECTOR, "input[placeholder='Сумма перевода']")
-    submit_button = browser.find_element(By.CSS_SELECTOR, "button[type='submit']")
-    
-    # Вводим сумму перевода
-    amount_input.send_keys("22500")
-    submit_button.click()
-    
-    # Переключаемся на доллары
-    dollar_tab = browser.find_element(By.XPATH, "//button[contains(text(), 'Доллары')]")
-    dollar_tab.click()
-    
-    # Проверяем, что перевод невозможен (должен быть disabled)
-    submit_button = browser.find_element(By.CSS_SELECTOR, "button[type='submit']")
-    assert submit_button.is_enabled() is False
 
-def test_card_input_character_validation(browser, app_url):
-    """Тестирование формы ввода карты на валидацию символов"""
-    browser.get(app_url)
-    
-    card_input = browser.find_element(By.CSS_SELECTOR, "input[placeholder='Номер карты']")
-    card_input.send_keys("abcd")
-    
-    assert card_input.get_attribute("value") == ""
+def fill_card(page: Page, number: str):
+    card_input = page.locator("input[placeholder='0000 0000 0000 0000']")
+    card_input.fill(number)
+    page.wait_for_timeout(100)
+    return card_input
 
-def test_insufficient_funds(browser, app_url):
-    """Тестирование механизма запрета перевода при недостатке средств"""
-    browser.get(app_url)
-    
-    amount_input = browser.find_element(By.CSS_SELECTOR, "input[placeholder='Сумма перевода']")
-    submit_button = browser.find_element(By.CSS_SELECTOR, "button[type='submit']")
-    
-    amount_input.send_keys("288000")
-    submit_button.click()
-    
-    # Проверяем сообщение об ошибке
-    error_message = WebDriverWait(browser, 5).until(
-        EC.visibility_of_element_located((By.CSS_SELECTOR, ".error-message"))
-    )
-    assert "Недостаточно средств на счете" in error_message.text
+
+def fill_amount(page: Page, amount: str):
+    amount_input = page.locator("input").nth(1)
+    amount_input.fill(amount)
+    return amount_input
+
+
+def test_card_number_validation(page: Page, app_url: str):
+    """Ввод более 16 символов в поле номера карты"""
+    open_rubles(page, app_url)
+    card = fill_card(page, "9999 9999 9999 9999 9")
+    value = card.input_value().replace(" ", "")
+    assert len(value) <= 16
+
+
+def test_balance_input_validation(page: Page, app_url: str):
+    """Некорректное значение баланса не должно выводить NaN"""
+    page.goto(app_url.replace("balance=30000", "balance=gdd"))
+    balance_text = page.locator("#rub-sum").inner_text()
+    assert "NaN" not in balance_text
+
+
+def test_currency_switch(page: Page, app_url: str):
+    """После перевода в рублях кнопка перевода в долларах недоступна"""
+    open_rubles(page, app_url)
+    fill_card(page, "1234 5678 9012 3456")
+    fill_amount(page, "22500")
+    page.get_by_role("button", name="Перевести").click()
+    page.get_by_text("Доллары").click()
+    submit = page.get_by_role("button", name="Перевести")
+    assert not submit.is_enabled()
+
+
+def test_card_input_character_validation(page: Page, app_url: str):
+    """Буквы в номере карты не принимаются"""
+    open_rubles(page, app_url)
+    card_input = fill_card(page, "abcd")
+    assert card_input.input_value() == ""
+
+
+def test_insufficient_funds(page: Page, app_url: str):
+    """Перевод больше остатка вызывает сообщение об ошибке"""
+    open_rubles(page, app_url)
+    fill_card(page, "1234 5678 9012 3456")
+    fill_amount(page, "288000")
+    page.get_by_role("button", name="Перевести").click()
+    error = page.locator(".error-message")
+    error.wait_for()
+    assert "Недостаточно средств" in error.inner_text()
+

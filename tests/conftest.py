@@ -1,32 +1,32 @@
 import os
 import pytest
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
+import subprocess
+import time
+from playwright.sync_api import sync_playwright
+
+
+@pytest.fixture(scope="session")
+def server():
+    # start simple HTTP server serving ./dist
+    proc = subprocess.Popen(
+        ["python", "-m", "http.server", "8000", "--directory", "dist"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    time.sleep(1)  # give server time to start
+    yield "http://localhost:8000"
+    proc.terminate()
+    proc.wait()
+
 
 @pytest.fixture(scope="function")
-def browser():
-    # Настройка драйвера
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")  # для CI
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    
-    driver_path = ChromeDriverManager().install()
-    if "THIRD_PARTY_NOTICES" in driver_path:
-        driver_path = driver_path.replace("THIRD_PARTY_NOTICES.chromedriver", "chromedriver")
-        os.chmod(driver_path, 0o755)
-
-    driver = webdriver.Chrome(
-        service=ChromeService(driver_path),
-        options=options,
-    )
-    driver.implicitly_wait(10)
-    
-    yield driver
-    
-    driver.quit()
+def page(server):
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        yield page
+        browser.close()
 
 @pytest.fixture
-def app_url():
-    return "http://localhost:8000/?balance=30000&reserved=20001"
+def app_url(server):
+    return f"{server}/?balance=30000&reserved=20001"
