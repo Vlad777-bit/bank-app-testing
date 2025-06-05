@@ -1,3 +1,4 @@
+import os
 import pytest
 import subprocess
 import time
@@ -25,7 +26,6 @@ def page(server):
         page = browser.new_page()
         yield page
         browser.close()
-
 
 @pytest.fixture
 def app_url(server):
